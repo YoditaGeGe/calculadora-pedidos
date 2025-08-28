@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora de Pedidos</title>
+<!-- jsPDF + autoTable -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+<style>
+    /* Ocultar cursor original */
+    body {
+        cursor: none;
+        font-family: Arial, sans-serif;
+        background: url('assets/fondo.jpg') no-repeat center center fixed;
+        background-size: cover;
+        color: white;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* Cursor circular tipo sello */
+    .custom-cursor {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 22px;
+        height: 22px;
+        pointer-events: none;
+        background: url('assets/logo.png') no-repeat center center;
+        background-size: contain;
+        border-radius: 50%;
+        border: 2px solid #FFD700;
+        z-index: 9999;
+        transform: translate(-50%, -50%);
+    }
+
+    .container { display: flex; padding: 20px; }
+    .left, .right {
+        padding: 20px;
+        background: rgba(0,0,0,0.7);
+        border-radius: 0px;
+        box-sizing: border-box;
+    }
+    .left { flex: 2; margin-right: 20px; }
+    .right { flex: 3; overflow-y: auto; max-height: 80vh; }
+    input[type="text"], input[type="number"] {
+        width: 100%; padding: 6px; margin-bottom: 10px;
+        border-radius: 0px; border: 2px solid #555;
+        background-color: rgba(50,50,50,0.8); color: white;
+        box-sizing: border-box;
+    }
+    input[type="number"] { width: 60px; }
+    button {
+        padding: 8px 12px; border-radius: 0px; border: none;
+        background-color: #0078D7; color: white; cursor: pointer;
+        margin-bottom: 10px; width: 100%;
+    }
+    button:hover { background-color: #005a9e; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    th, td { border: 2px solid black; padding: 6px; text-align: center; }
+    th { background-color: grey; color: white; }
+    .subtotal, .total { color: #00FF7F; font-weight: bold; }
+    .total-general { color: #FFD700; font-size: 18px; font-weight: bold; }
+    .logo { display: block; margin: 0 auto 10px auto; width: 120px; height: auto; }
+
+    /* Modal historial */
+    .modal { display: none; position: fixed; z-index: 999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.8); }
+    .modal-content { background-color: rgba(0,0,0,0.9); margin: 5% auto; padding: 20px; border: 2px solid #555; width: 90%; max-width: 900px; border-radius: 0px; }
+    .close { color: white; float: right; font-size: 28px; cursor: pointer; }
+    .close:hover { color: #ff5555; }
+    #historial-table th, #historial-table td { border: 1px solid white; color: white; }
+    #historial-table th { background-color: #444; }
+</style>
+</head>
+<body>
+
+<!-- Cursor personalizado -->
+<div class="custom-cursor" id="customCursor"></div>
+
+<div class="container">
+    <div class="left">
+        <img src="assets/logo.png" alt="Logo" class="logo" id="logo-img">
+        <h2>Calculadora de Pedidos</h2>
+        <label>👤 Nombre del Cliente:</label>
+        <input type="text" id="cliente" placeholder="Ingrese nombre del cliente">
+        <label>💰 Precio Total (Manual):</label>
+        <input type="text" id="precio" readonly>
+        <label>📉 % Descuento:</label>
+        <input type="number" id="descuento" placeholder="Ejemplo: 20">
+        <button onclick="calcularDescuento()">Calcular</button>
+        <p id="resultado"></p>
+        <button onclick="finalizarPedido()">✅ Finalizar Pedido</button>
+        <button onclick="mostrarHistorial()">📜 Ver Historial</button>
+    </div>
+
+    <div class="right">
+        <table id="tabla-productos">
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th>Precio</th>
+                    <th>Cantidad</th>
+                    <th>Subtotal</th>
+                </tr>
+            </thead>
+            <tbody id="productos-body"></tbody>
+        </table>
+        <p class="total-general" id="total-general">Total: $0</p>
+    </div>
+</div>
+
+<!-- Modal Historial -->
+<div id="modalHistorial" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="cerrarModal()">&times;</span>
+    <h2>Historial de Pedidos</h2>
+    <table id="historial-table">
+        <thead>
+            <tr>
+                <th>Fecha y Hora</th>
+                <th>Cliente</th>
+                <th>Total Final</th>
+                <th>Descuento</th>
+            </tr>
+        </thead>
+        <tbody id="historial-body"></tbody>
+    </table>
+    <button onclick="exportarPDF()">🖨 Exportar a PDF</button>
+  </div>
+</div>
+
+<script>
+const productos = [
+    {nombre:"🔧 Reparación", precio:5000},
+    {nombre:"🎨 Pieza estética", precio:5000},
+    {nombre:"⚡ Pieza rendimiento", precio:10000},
+    {nombre:"🛠 Pieza de mantenimiento", precio:10000},
+    {nombre:"🏎 Full rendimiento", precio:75000},
+    {nombre:"💡 Luces", precio:50000},
+    {nombre:"🎨 Cambio de color", precio:5000},
+    {nombre:"🛞 Ruedas", precio:5000},
+    {nombre:"🛠 Kit instalación (tienda)", precio:1500000},
+    {nombre:"🛠 Kit instalación (venta)", precio:2500000},
+    {nombre:"🧪 Botella nitro (tienda)", precio:250000},
+    {nombre:"🧪 Botella nitro (venta)", precio:500000},
+    {nombre:"🛠 Kit Reparación", precio:10000}
+];
+
+let historial = [];
+
+function actualizarTotal() {
+    let total = 0;
+    productos.forEach((p, i) => {
+        const cantidad = parseInt(document.getElementById('cantidad-'+i).value) || 0;
+        const subtotal = cantidad * p.precio;
+        document.getElementById('subtotal-'+i).innerText = `$${subtotal.toLocaleString()}`;
+        total += subtotal;
+    });
+    document.getElementById('precio').value = total;
+    document.getElementById('total-general').innerText = `Total: $${total.toLocaleString()}`;
+}
+
+function calcularDescuento() {
+    const precio = parseFloat(document.getElementById('precio').value) || 0;
+    const descuento = parseFloat(document.getElementById('descuento').value) || 0;
+    const monto_descuento = precio * (descuento / 100);
+    const precio_final = precio - monto_descuento;
+    document.getElementById('resultado').innerText = `✅ Descuento: $${monto_descuento.toLocaleString()}\n💲 Precio Final: $${precio_final.toLocaleString()}`;
+}
+
+function finalizarPedido() {
+    const cliente = document.getElementById('cliente').value || "Cliente Desconocido";
+    const total = parseFloat(document.getElementById('precio').value) || 0;
+    const descuento = parseFloat(document.getElementById('descuento').value) || 0;
+    const monto_descuento = total * (descuento / 100);
+    const total_final = total - monto_descuento;
+
+    historial.push({
+        fecha: new Date().toLocaleString(),
+        cliente,
+        total_final,
+        monto_descuento
+    });
+
+    alert(`Pedido finalizado para ${cliente}.\nTotal: $${total_final.toLocaleString()}\nDescuento: $${monto_descuento.toLocaleString()}`);
+
+    document.getElementById('cliente').value = '';
+    document.getElementById('descuento').value = '';
+    document.getElementById('resultado').innerText = '';
+    productos.forEach((p, i) => {
+        document.getElementById('cantidad-'+i).value = 0;
+        document.getElementById('subtotal-'+i).innerText = "$0";
+    });
+    actualizarTotal();
+}
+
+function mostrarHistorial() {
+    const modal = document.getElementById('modalHistorial');
+    const tbody = document.getElementById('historial-body');
+    tbody.innerHTML = '';
+    historial.forEach(h => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${h.fecha}</td>
+            <td>${h.cliente}</td>
+            <td>$${h.total_final.toLocaleString()}</td>
+            <td>$${h.monto_descuento.toLocaleString()}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+    modal.style.display = 'block';
+}
+
+function cerrarModal() { document.getElementById('modalHistorial').style.display = 'none'; }
+
+function exportarPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'pt');
+    const logoImg = document.getElementById('logo-img');
+
+    const img = new Image();
+    img.src = logoImg.src;
+    img.onload = () => {
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const maxLogoSize = 100;
+        let ratio = Math.min(maxLogoSize / img.width, maxLogoSize / img.height);
+        let logoWidth = img.width * ratio;
+        let logoHeight = img.height * ratio;
+        let x = (pdfWidth - logoWidth) / 2;
+        doc.addImage(img, 'PNG', x, 20, logoWidth, logoHeight);
+
+        doc.setFontSize(20);
+        doc.text("Historial de Pedidos", pdfWidth / 2, 140, { align: "center" });
+
+        const rows = historial.map(h => [
+            h.fecha,
+            h.cliente,
+            `$${h.total_final.toLocaleString()}`,
+            `$${h.monto_descuento.toLocaleString()}`
+        ]);
+
+        doc.autoTable({
+            head: [['Fecha y Hora', 'Cliente', 'Total Final', 'Descuento']],
+            body: rows,
+            startY: 160,
+            styles: { fillColor: [245,245,245], textColor: 0, halign: 'center' },
+            headStyles: { fillColor: [80,80,80], textColor: 255, fontStyle: 'bold' },
+            theme: 'grid'
+        });
+
+        doc.save("historial.pdf");
+    };
+}
+
+// Inicializar tabla productos
+const tbodyProductos = document.getElementById('productos-body');
+productos.forEach((p,i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td>${p.nombre}</td>
+        <td>$${p.precio.toLocaleString()}</td>
+        <td><input type="number" id="cantidad-${i}" value="0" min="0" onchange="actualizarTotal()"></td>
+        <td class="subtotal" id="subtotal-${i}">$0</td>
+    `;
+    tbodyProductos.appendChild(tr);
+});
+
+// Mover cursor personalizado
+const customCursor = document.getElementById('customCursor');
+document.addEventListener('mousemove', e => {
+    customCursor.style.left = e.clientX + 'px';
+    customCursor.style.top = e.clientY + 'px';
+});
+</script>
+</body>
+</html>
